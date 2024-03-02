@@ -1,4 +1,7 @@
-export type UnitStats = {}
+export type UnitStats = {
+    Spa: number,
+    Range: number
+}
 export type UnitSkills = {}
 export type UnitData = {
     Name: string,
@@ -10,10 +13,12 @@ export type UnitData = {
     Type: string,
     Equipped: boolean,
     Slot: number,
+    InitialCost: number,
     Rarity: string
 }
 export type UnitCommonData = {
     Name: string,
+    InitialCost: number,
     InitialStats: UnitStats,
     Skills: UnitSkills,
     ToCloneModel: string,

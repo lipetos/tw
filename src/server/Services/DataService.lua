@@ -3,7 +3,7 @@
 -- 12 Mar, 2022
 
 --[[
-  
+
 ]]
 
 --// Services & Modules
@@ -21,7 +21,7 @@ local DYNAMIC_TEMPLATE = require(ReplicatedStorage.Shared.DynamicDataTemplate)
 local STATIC_TEMPLATE = require(ReplicatedStorage.Shared.StaticDataTemplate)
 
 local DEBUG_WIPE_MODE = false
-local VERSION = 17
+local VERSION = 19
 local DEBUG_MODE = false
 
 --// Local Functions

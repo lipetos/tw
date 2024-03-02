@@ -18,6 +18,9 @@ local knit = require(replicated_storage.Packages.Knit)
 local rarities = require(replicated_storage.Shared.Rarities)
 local signal = require(replicated_storage.Packages._Index["sleitnick_signal@2.0.1"].signal)
 
+--// Consts
+local EQUIPPED_SLOTS_AMOUNT = 5
+
 --// Controller
 local InventoryController = knit.CreateController({
     Name = "InventoryController"
@@ -25,7 +28,10 @@ local InventoryController = knit.CreateController({
 
 function InventoryController:KnitInit()
     self.GuiController = knit.GetController("GuiController")
+    self.InputController = knit.GetController("InputController")
+    
     self.UnitsService = knit.GetService("UnitsService")
+
 
     -- local events
     self.IndvSelectionChanged = signal.new()
@@ -44,24 +50,18 @@ function InventoryController:KnitStart()
     self.inventory_main_display = self.GuiController:GetWait("HUD/Inventory/InventoryDisplay")
 
     self.display_unit_preview = self.GuiController:GetWait("HUD/Inventory/DisplayUnitPreview")
+    self.display_unit_buttons = self.GuiController:GetWait("HUD/Inventory/DisplayUnitPreview/Buttons")
+    self.display_unit_slots = self.GuiController:GetWait("HUD/Inventory/DisplayUnitPreview/Slots")
+
+    self.bottom_bar = self.GuiController:GetWait("HUD/BottomBar")
+    self.slots_frame = self.GuiController:GetWait("HUD/BottomBar/Slots")
+    self.slots_display_frame = self.GuiController:GetWait("HUD/BottomBar/Slots/Display")
     
-    -- temporary
-    local menuState = false
-
-    user_input_service.InputBegan:Connect(function(input, gameProcessedEvent)
-        if input.KeyCode == Enum.KeyCode.M then
-            if menuState then
-                self.GuiController:CloseMenu()
-            else
-                self.GuiController:OpenMenu()
-            end
-
-            menuState = not menuState
-        end
-    end)
-
     -- loads the local inventories
     self:SetSectionButtonSelection("Units")
+
+    self.slots_data = {}
+    self:LoadSlots()
 
     --[[
         units related inventory loaders
@@ -85,20 +85,181 @@ function InventoryController:KnitStart()
     self.IndvSelectionChanged:Connect(function(old_idv, new_idv)
         self:SetIndvDisplay(new_idv)
     end)
+
+    --[[
+        Open and close menu, animations are WIP
+    ]]
+
+    self.InputController:BindKeyboard("M", "InputBegan", function()
+        local menu_data = self.GuiController:GetMenuData("Inventory")
+
+        if menu_data.open then
+            self.GuiController:CloseMenu("Inventory")
+        else
+            self.GuiController:OpenMenu("Inventory")
+        end
+    end, true)
+
+    --[[
+        Handles equip n stuff
+    ]]
+    self:SetSlotsSelectState(true)
+    self.equipping = false
+
+    local slot_template = self.display_unit_slots.Display.Display.Configuration.Template
+
+    for i = 1, EQUIPPED_SLOTS_AMOUNT do
+        local cloned_template = slot_template:Clone()
+
+        cloned_template.SlotNumber.Text = i .. "."
+        cloned_template.TextLabel.Text = "N/A"
+
+        cloned_template.Parent = self.display_unit_slots.Display.Display
+
+        cloned_template.TextButton.Activated:Connect(function()
+            print("trying to request a equip from the client... slot: ", i)
+            self:SetEquipButtonState(false)
+            self:SetSlotsSelectState(true)
+            self.UnitsService:RequestEquip(self.current_selected_indv, i)
+        end)
+    end
+
+    self.display_unit_buttons.Equip.TextButton.Activated:Connect(function()
+        self:SetSlotsSelectState(self.equipping)
+        self.equipping = not self.equipping
+    end)
+end
+
+function InventoryController:SetEquipButtonState(state: boolean)
+    if not state then
+        tween_service:Create(self.display_unit_buttons.Equip.UIScale, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Scale = 0.8
+        }):Play()
+        tween_service:Create(self.display_unit_buttons.Equip.Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            BackgroundTransparency = 0.35
+        }):Play()
+    else
+        tween_service:Create(self.display_unit_buttons.Equip.UIScale, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Scale = 1
+        }):Play()
+        tween_service:Create(self.display_unit_buttons.Equip.Frame, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            BackgroundTransparency = 1
+        }):Play()
+    end
+end
+
+function InventoryController:SetSlotsSelectState(state: boolean)
+    if state then
+        task.spawn(function()
+            for i,v in self.display_unit_slots.Display.Display:GetChildren() do
+                if v:IsA("Frame") then
+                    tween_service:Create(v.UIScale, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+                        Scale = 0
+                    }):Play()
+
+                    task.wait(0.1)
+                end
+            end
+        end)
+
+        tween_service:Create(self.display_unit_slots.UIScale, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Scale = 0.9
+        }):Play()
+        tween_service:Create(self.display_unit_slots.TextLabel, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            TextTransparency = 1
+        }):Play()
+        tween_service:Create(self.display_unit_slots.Display, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            GroupTransparency = 1
+        }):Play()
+        tween_service:Create(self.display_unit_slots.Display.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Transparency = 1
+        }):Play()
+
+        self:SetEquipButtonState(true)
+
+        self.display_unit_buttons.Equip.TextLabel.Text = "Equip"
+    else
+        tween_service:Create(self.display_unit_slots.UIScale, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Scale = 1
+        }):Play()
+        tween_service:Create(self.display_unit_slots.TextLabel, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            TextTransparency = 0
+        }):Play()
+        tween_service:Create(self.display_unit_slots.Display, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            GroupTransparency = 0
+        }):Play()
+        tween_service:Create(self.display_unit_slots.Display.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+            Transparency = 0
+        }):Play()
+
+        task.spawn(function()
+            for i,v in self.display_unit_slots.Display.Display:GetChildren() do
+                if v:IsA("Frame") then
+                    tween_service:Create(v.UIScale, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {
+                        Scale = 0.8
+                    }):Play()
+
+                    task.wait(0.03)
+                end
+            end
+        end)
+
+        self.display_unit_buttons.Equip.TextLabel.Text = "Choosing slots"
+        self:SetEquipButtonState(false)
+    end
 end
 
 function InventoryController:SetIndvDisplay(idv)
     local data = self:GetFromInventories(idv).data :: global_types.UnitData
     local rarity_data = rarities.Units[data.Rarity]
+    local previewFrame = self.display_unit_preview.Preview
 
     self.display_unit_preview.Frame.UIGradient.Color = rarity_data.Color
-    self.display_unit_preview.Preview.TextLabel.Text = data.Name
-    self.display_unit_preview.Preview.TextLabel.UIGradient.Color = rarity_data.Color
+    previewFrame.TextLabel.Text = data.Name
+    previewFrame.TextLabel.UIGradient.Color = rarity_data.Color
+
+    for i,v in data.Stats do
+        local statText = previewFrame:FindFirstChild(i)
+
+        if not statText then continue end
+
+        statText.TextLabel.Text = if i == "Spa" then string.format("%s/s", v) else v
+    end
+
+    for i,v in previewFrame.Type:GetChildren() do
+        if not v:IsA("UIGradient") then continue end
+
+        v.Enabled = v.Name == data.Type
+    end
+
+    previewFrame.Type.Text = data.Type
+
+    -- range, spa, type
 
     --self:_loadViewport(globals.path_wait(self.playerGui, "HUD/ViewportFrame"), globals.path(replicated_storage, `Assets/Units/{data.Name}/{data.Name}Model`), data)
     -- self:_loadViewport(globals.path(self.playerGui, "HUD/Inventory/Preview"), globals.path(replicated_storage, `Assets/Units/{data.Name}/{data.Name}Model`), data)
     -- self:_loadViewport(globals.path(self.playerGui, "HUD/PP"), globals.path(replicated_storage, `Assets/Units/{data.Name}/{data.Name}Model`), data)
     self:_loadViewport(globals.path(self.playerGui, "HUD/Inventory/DisplayUnitPreview/Preview"), globals.path(replicated_storage, `Assets/Units/{data.Name}/{data.Name}Model`), data)
+end
+
+function InventoryController:LoadSlots()
+    local slot_template = self.slots_display_frame.Configuration.Template
+
+    for i = 1, EQUIPPED_SLOTS_AMOUNT do
+        local cloned_template = slot_template:Clone()
+
+        cloned_template.SlotNumber.Text = i .. "."
+        cloned_template.TextLabel.Text = "N/A"
+
+        cloned_template.Parent = self.slots_display_frame
+        self.slots_data[i] = {
+            frame = cloned_template
+        }
+    end
+end
+
+function InventoryController:SetSlot()
+
 end
 
 function InventoryController:_loadViewport(viewport: ViewportFrame, model: Model, unit_data)
@@ -107,7 +268,7 @@ function InventoryController:_loadViewport(viewport: ViewportFrame, model: Model
         -- setups the viewport
         local camera = Instance.new("Camera")
         camera.CameraType = Enum.CameraType.Scriptable
-        viewport.CurrentCamera = camera    
+        viewport.CurrentCamera = camera   
         camera.Parent = viewport
 
         world_model = Instance.new("WorldModel")
@@ -120,7 +281,6 @@ function InventoryController:_loadViewport(viewport: ViewportFrame, model: Model
             v:Destroy()
         end
     end
-
 
     local cloned_model = model:Clone()
     local primary_part = cloned_model.PrimaryPart
@@ -183,6 +343,13 @@ function InventoryController:_getRaritySection(rarity: string): Frame?
     return sec
 end
 
+function InventoryController:_applyRarityColor(rarity: string, frame: Frame)
+    local color = rarities.Units[rarity].Color
+
+    frame.UIStroke.UIGradient.Color = color
+    frame.Frame.UIStroke.UIGradient.Color = color
+end
+
 function InventoryController:_createUnitFrame(unit_data: global_types.UnitData)
     local rarity_section = self:_getRaritySection(unit_data.Rarity)
     local display_units = rarity_section.DisplayUnits
@@ -191,8 +358,7 @@ function InventoryController:_createUnitFrame(unit_data: global_types.UnitData)
 
     cloned_template.TextLabel.Text = unit_data.Name
 
-    cloned_template.UIStroke.UIGradient.Color = color
-    cloned_template.Frame.UIStroke.UIGradient.Color = color
+    self:_applyRarityColor(unit_data.Rarity, cloned_template)
 
     cloned_template.Name = unit_data.Id
     cloned_template.Parent = rarity_section.DisplayUnits
@@ -248,7 +414,7 @@ function InventoryController:LoadInventorySection(section: string)
             sec_instance.TextLabel.UIGradient.Enabled = false
         else
             sec_instance.TextLabel.UIGradient.Rotation = 90
-            sec_instance.TextLabel.UIGradient.Color = v.Color          
+            sec_instance.TextLabel.UIGradient.Color = v.Color
         end
 
         sec_instance.Name = v.id

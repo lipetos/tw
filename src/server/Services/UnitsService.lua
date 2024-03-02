@@ -137,6 +137,11 @@ function UnitsService:AddUnit(player: Player, unit: string, unit_data: UnitData?
 
         ToCloneModel = common_unit_data.ToCloneModel,
         Equipped     = false,
+        InitialCost  = common_unit_data.InitialCost,
+        UnitStats    = {
+            Spa   = common_unit_data.InitialStats.Spa,
+            Range = common_unit_data.InitialStats.Range,
+        } :: GlobalTypes.UnitStats,
         Rarity       = common_unit_data.Rarity,
         Slot         = -1 -- means the unit is unequipped
     } :: UnitData)
@@ -146,7 +151,25 @@ function UnitsService:AddUnit(player: Player, unit: string, unit_data: UnitData?
     return data
 end
 
-function UnitsService:EquipUnit(player: Player, id: string)
+function UnitsService:_waitForInventory(player: Player)
+    while not self.inventoriesCache[player] do
+        task.wait()
+    end
+end
+
+function UnitsService:_getUnitInSlot(player: Player, slot: number)
+    local inventory: UnitInventory = self:_getInventory(player)
+
+    if not inventory then return end
+
+    for i,v in inventory do
+        if v.Slot == slot then
+            return v
+        end
+    end
+end
+
+function UnitsService:EquipUnit(player: Player, id: string, slot: number)
     local unit_data: UnitData? = self:_getUnitFromInventory(player, id)
 
     if not unit_data then
@@ -162,6 +185,15 @@ function UnitsService:EquipUnit(player: Player, id: string)
         return -- already reached the max equip slots
     end
 
+    local unit_slot = self:_getUnitInSlot(player, slot)
+
+    if not unit_slot then
+        unit_data.Slot = slot
+    else
+        self:UnequipUnit(player, unit_slot.Id)
+        return self:EquipUnit(player, id, slot)
+    end
+
     unit_data.Equipped = true
 
     self.Client.UnitEquipped:Fire(player, unit_data)
@@ -174,6 +206,7 @@ function UnitsService:UnequipUnit(player: Player, id: string)
         return error(`Could not find unit_data ( id: {id}, player: {player} )`)
     end
 
+    unit_data.Slot = -1
     unit_data.Equipped = false
 
     self.Client.UnitUnequipped:Fire(player, unit_data)
@@ -191,6 +224,20 @@ function UnitsService:GetReadyToDSInventory(player: Player)
     end
 
     return inventory
+end
+
+--[[
+    Client Functions
+]]
+
+function UnitsService.Client:RequestEquip(player: Player, id: string, slot: number)
+    if not id then
+        return warn("NO id to request an equip")
+    end
+
+    self.Server:_waitForInventory(player)
+
+    self.Server:EquipUnit(player, id, slot)
 end
 
 return UnitsService
